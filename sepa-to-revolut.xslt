@@ -3,7 +3,7 @@
     <xsl:output method="text" encoding="UTF-8" indent="no"/>
 
     <!-- Default values -->
-    <xsl:param name="defaultRecipientType" select="'BUSINESS'"/>
+    <xsl:param name="defaultRecipientType" select="'PERSON'"/>
     <xsl:param name="defaultCurrency" select="'EUR'"/>
     <xsl:param name="defaultCountry" select="'NL'"/>
     <xsl:param name="defaultState" select="''"/>
