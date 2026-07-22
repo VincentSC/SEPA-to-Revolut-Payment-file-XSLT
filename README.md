@@ -2,7 +2,7 @@
 
 As we're migrating to Revolut, and there is no support for handling SEPA XML-files, but only their own CSV-files, I needed to create a CSV-file with the info from the SEPA-XML. 
 
-I did find an implementation in NodeJS at https://github.com/jessedvrs/convert-sepa-xml-to-revolut-csv-app - I just don't like an app that could be a tool. Main reason: eventually I want this to be part of an ELT. There was no easy way to separate the transformations from the rest of the app, so I made this.
+I did find an implementation in NodeJS at https://github.com/jessedvrs/convert-sepa-xml-to-revolut-csv-app - I just don't like an app that could be a tool. Main reason: eventually I want this to be part of an ELT. There was no easy way to separate the transformations from the rest of the app, so I made this. Second reason is that it does not read the address-info in the XML.
 
 To make it simple and understandable, I chose XSLT. It's a powerful description-language for transforming/changing XML-files. XSLTs are very clean compared to code, unless there are many, many exceptions. I never made one for XML to CSV, but luckily Mistral did. To me the end-results looked good in my review.
 
