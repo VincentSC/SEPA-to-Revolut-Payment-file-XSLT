@@ -3,7 +3,7 @@
     <xsl:output method="text" encoding="UTF-8" indent="no"/>
 
     <!-- Default values -->
-    <xsl:param name="defaultRecipientType" select="'PERSON'"/>
+    <xsl:param name="defaultRecipientType" select="'INDIVIDUAL'"/>
     <xsl:param name="defaultCurrency" select="'EUR'"/>
     <xsl:param name="defaultCountry" select="'NL'"/>
     <xsl:param name="defaultState" select="''"/>
@@ -42,6 +42,26 @@
         </xsl:choose>
     </xsl:template>
 
+    <!-- Template: normalize a name field.
+         - Trims whitespace.
+         - If formatted as "last, first", swaps it to "first last". -->
+    <xsl:template name="normalize-name">
+        <xsl:param name="text"/>
+        <xsl:variable name="trimmed" select="normalize-space($text)"/>
+        <xsl:choose>
+            <xsl:when test="contains($trimmed, ',')">
+                <xsl:value-of select="normalize-space(concat(
+                    substring-after($trimmed, ','),
+                    ' ',
+                    substring-before($trimmed, ',')
+                ))"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="$trimmed"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
     <!-- Template to trim whitespace and newlines -->
     <xsl:template name="trim">
         <xsl:param name="text"/>
@@ -55,13 +75,37 @@
 
         <!-- Process each transaction -->
         <xsl:for-each select="//*[local-name()='CdtTrfTxInf']">
-            <!-- Extract and escape fields -->
+            <!-- Name: trimmed, and "last, first" swapped back to "first last" -->
             <xsl:variable name="name">
+                <xsl:variable name="normalized">
+                    <xsl:call-template name="normalize-name">
+                        <xsl:with-param name="text" select="*[local-name()='Cdtr']/*[local-name()='Nm']"/>
+                    </xsl:call-template>
+                </xsl:variable>
                 <xsl:call-template name="escape-csv">
-                    <xsl:with-param name="text" select="*[local-name()='Cdtr']/*[local-name()='Nm']"/>
+                    <xsl:with-param name="text" select="$normalized"/>
                 </xsl:call-template>
             </xsl:variable>
-            <xsl:variable name="recipientType" select="$defaultRecipientType"/>
+
+            <!-- Recipient type: determined by Cdtr/Id structure
+                 - PrvtId present  -> INDIVIDUAL
+                 - OrgId present   -> BUSINESS
+                 - neither present -> defaultRecipientType -->
+            <xsl:variable name="recipientType">
+                <xsl:choose>
+                    <xsl:when test="*[local-name()='Cdtr']/*[local-name()='Id']/*[local-name()='PrvtId']">
+                        <xsl:value-of select="'INDIVIDUAL'"/>
+                    </xsl:when>
+                    <xsl:when test="*[local-name()='Cdtr']/*[local-name()='Id']/*[local-name()='OrgId']">
+                        <xsl:value-of select="'BUSINESS'"/>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <xsl:value-of select="$defaultRecipientType"/>
+                    </xsl:otherwise>
+                </xsl:choose>
+            </xsl:variable>
+
+            <!-- All other fields unchanged -->
             <xsl:variable name="iban">
                 <xsl:call-template name="escape-csv">
                     <xsl:with-param name="text" select="*[local-name()='CdtrAcct']/*[local-name()='Id']/*[local-name()='IBAN']"/>
@@ -72,10 +116,30 @@
                     <xsl:with-param name="text" select="*[local-name()='CdtrAgt']/*[local-name()='FinInstnId']/*[local-name()='BIC']"/>
                 </xsl:call-template>
             </xsl:variable>
+            <!-- Recipient bank country:
+                 1. Explicit Ctry element in CdtrAgt/FinInstnId (if present)
+                 2. First 2 characters of the IBAN
+                 3. defaultCountry as last resort -->
+            <xsl:variable name="ibanRaw" select="normalize-space(*[local-name()='CdtrAcct']/*[local-name()='Id']/*[local-name()='IBAN'])"/>
             <xsl:variable name="bankCountry">
-                <xsl:call-template name="escape-csv">
-                    <xsl:with-param name="text" select="*[local-name()='CdtrAgt']/*[local-name()='FinInstnId']/*[local-name()='Ctry']"/>
-                </xsl:call-template>
+                <xsl:choose>
+                    <!-- Use the explicit Ctry element if present -->
+                    <xsl:when test="normalize-space(*[local-name()='CdtrAgt']/*[local-name()='FinInstnId']/*[local-name()='Ctry']) != ''">
+                        <xsl:call-template name="escape-csv">
+                            <xsl:with-param name="text" select="*[local-name()='CdtrAgt']/*[local-name()='FinInstnId']/*[local-name()='Ctry']"/>
+                        </xsl:call-template>
+                    </xsl:when>
+                    <!-- Otherwise derive from IBAN's first 2 characters -->
+                    <xsl:when test="$ibanRaw != ''">
+                        <xsl:call-template name="escape-csv">
+                            <xsl:with-param name="text" select="substring($ibanRaw, 1, 2)"/>
+                        </xsl:call-template>
+                    </xsl:when>
+                    <!-- Last resort: default -->
+                    <xsl:otherwise>
+                        <xsl:value-of select="$defaultCountry"/>
+                    </xsl:otherwise>
+                </xsl:choose>
             </xsl:variable>
             <xsl:variable name="currency">
                 <xsl:choose>
@@ -88,11 +152,13 @@
                 </xsl:choose>
             </xsl:variable>
             <xsl:variable name="amount">
-                <xsl:call-template name="trim">
-                    <xsl:with-param name="text" select="*[local-name()='Amt']"/>
-                </xsl:call-template>
+                <xsl:variable name="trimmed-amount">
+                    <xsl:call-template name="trim">
+                        <xsl:with-param name="text" select="*[local-name()='Amt']"/>
+                    </xsl:call-template>
+                </xsl:variable>
                 <xsl:call-template name="escape-csv">
-                    <xsl:with-param name="text" select="normalize-space(*)"/>
+                    <xsl:with-param name="text" select="$trimmed-amount"/>
                 </xsl:call-template>
             </xsl:variable>
             <xsl:variable name="paymentReference">
@@ -107,16 +173,14 @@
             </xsl:variable>
             <xsl:variable name="state" select="$defaultState"/>
 
-            <!-- Address Line 1: Prioritize AdrLine[1], fallback to StrtNm + BldgNb -->
+            <!-- Address Line 1: prioritize AdrLine[1], fallback to StrtNm + BldgNb -->
             <xsl:variable name="addressLine1">
                 <xsl:choose>
-                    <!-- If AdrLine[1] exists, use it -->
                     <xsl:when test="*[local-name()='Cdtr']/*[local-name()='PstlAdr']/*[local-name()='AdrLine'][1]">
                         <xsl:call-template name="escape-csv">
                             <xsl:with-param name="text" select="*[local-name()='Cdtr']/*[local-name()='PstlAdr']/*[local-name()='AdrLine'][1]"/>
                         </xsl:call-template>
                     </xsl:when>
-                    <!-- Otherwise, use StrtNm + BldgNb -->
                     <xsl:otherwise>
                         <xsl:call-template name="escape-csv">
                             <xsl:with-param name="text" select="concat(*[local-name()='Cdtr']/*[local-name()='PstlAdr']/*[local-name()='StrtNm'], ' ', *[local-name()='Cdtr']/*[local-name()='PstlAdr']/*[local-name()='BldgNb'])"/>
@@ -125,16 +189,14 @@
                 </xsl:choose>
             </xsl:variable>
 
-            <!-- Address Line 2: Prioritize AdrLine[2], fallback to empty -->
+            <!-- Address Line 2: prioritize AdrLine[2], fallback to empty -->
             <xsl:variable name="addressLine2">
                 <xsl:choose>
-                    <!-- If AdrLine[2] exists, use it -->
                     <xsl:when test="*[local-name()='Cdtr']/*[local-name()='PstlAdr']/*[local-name()='AdrLine'][2]">
                         <xsl:call-template name="escape-csv">
                             <xsl:with-param name="text" select="*[local-name()='Cdtr']/*[local-name()='PstlAdr']/*[local-name()='AdrLine'][2]"/>
                         </xsl:call-template>
                     </xsl:when>
-                    <!-- Otherwise, use empty -->
                     <xsl:otherwise>
                         <xsl:value-of select="$defaultAddressLine2"/>
                     </xsl:otherwise>
